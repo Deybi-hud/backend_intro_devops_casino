@@ -3,6 +3,7 @@ package-lock.json
 .env
 *.log
 coverage
+.DS_Store
 
 # Claude Code
 .claude/
