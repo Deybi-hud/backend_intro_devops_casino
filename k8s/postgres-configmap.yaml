@@ -1,0 +1,57 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-init-script
+  labels:
+    app: postgres
+data:
+  01-init.sql: |
+    CREATE TABLE IF NOT EXISTS usuarios (
+      id              SERIAL PRIMARY KEY,
+      username        VARCHAR(40)  NOT NULL UNIQUE,
+      email           VARCHAR(120) NOT NULL UNIQUE,
+      password_hash   VARCHAR(255) NOT NULL,
+      saldo           NUMERIC(12, 2) NOT NULL DEFAULT 1000.00,
+      rol             VARCHAR(20)  NOT NULL DEFAULT 'jugador',
+      creado_en       TIMESTAMP    NOT NULL DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS juegos (
+      id          SERIAL PRIMARY KEY,
+      codigo      VARCHAR(30)  NOT NULL UNIQUE,
+      nombre      VARCHAR(60)  NOT NULL,
+      descripcion TEXT,
+      apuesta_min NUMERIC(10,2) NOT NULL DEFAULT 10,
+      apuesta_max NUMERIC(10,2) NOT NULL DEFAULT 1000,
+      activo      BOOLEAN      NOT NULL DEFAULT TRUE
+    );
+
+    CREATE TABLE IF NOT EXISTS transacciones (
+      id          SERIAL PRIMARY KEY,
+      usuario_id  INTEGER      NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+      tipo        VARCHAR(20)  NOT NULL CHECK (tipo IN ('apuesta','premio','deposito','retiro','ajuste')),
+      juego_id    INTEGER      REFERENCES juegos(id),
+      monto       NUMERIC(12,2) NOT NULL,
+      saldo_post  NUMERIC(12,2) NOT NULL,
+      detalle     JSONB,
+      creada_en   TIMESTAMP    NOT NULL DEFAULT NOW()
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_tx_usuario ON transacciones(usuario_id, creada_en DESC);
+    CREATE INDEX IF NOT EXISTS idx_tx_juego   ON transacciones(juego_id);
+
+    CREATE TABLE IF NOT EXISTS sesiones_juego (
+      id          SERIAL PRIMARY KEY,
+      usuario_id  INTEGER      NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+      juego_id    INTEGER      NOT NULL REFERENCES juegos(id),
+      estado      JSONB        NOT NULL,
+      abierta     BOOLEAN      NOT NULL DEFAULT TRUE,
+      creada_en   TIMESTAMP    NOT NULL DEFAULT NOW(),
+      cerrada_en  TIMESTAMP
+    );
+
+    INSERT INTO juegos (codigo, nombre, descripcion, apuesta_min, apuesta_max) VALUES
+      ('slots',     'Tragamonedas', 'Maquina de 3 rodillos con 8 simbolos.',                10, 500),
+      ('roulette',  'Ruleta',       'Ruleta europea: numero, color, par/impar, docena.',    10, 1000),
+      ('blackjack', 'Blackjack',    'Cartas contra la banca. Hit, stand, doble.',           20, 2000)
+    ON CONFLICT (codigo) DO NOTHING;
