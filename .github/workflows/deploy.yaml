@@ -74,4 +74,5 @@ jobs:
           
           sed -i "s|image: .*|image: $FULL_IMAGE|g" k8s/deployment.yaml
           kubectl apply -f k8s/
+          kubectl rollout restart deployment/${{ secrets.DEPLOYMENT_NAME }}
           kubectl rollout status deployment/${{ secrets.DEPLOYMENT_NAME }}
