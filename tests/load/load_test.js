@@ -3,13 +3,13 @@ import { check, sleep } from 'k6';
 
 export const options = {
   stages: [
-    { duration: '30s', target: 50 },  // Rampa de subida a 50 usuarios
-    { duration: '1m', target: 50 },   // Mantener estrÃ©s
-    { duration: '30s', target: 0 },   // Rampa de bajada
+    { duration: '30s', target: 50 },
+    { duration: '1m', target: 50 },
+    { duration: '30s', target: 0 },
   ],
   thresholds: {
-    http_req_duration: ['p(95)<500'], // 95% de peticiones bajo 500ms
-    http_req_failed: ['rate<0.01'],   // Tasa de error menor al 1%
+    http_req_duration: ['p(95)<500'],
+    http_req_failed: ['rate<0.01'],
   },
 };
 
