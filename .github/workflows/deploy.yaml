@@ -3,15 +3,42 @@ name: VidalCasino CI/CD Pipeline
 on:
   push:
     branches:
-      - deploy 
+      - deploy
 
 jobs:
-  build-and-push:
-    name: Build & Push to Amazon ECR
+  build:
+    name: Build Docker Image
     runs-on: ubuntu-latest
     steps:
       - name: Checkout del código
         uses: actions/checkout@v4
+
+      - name: Construir imagen Docker
+        env:
+          IMAGE_TAG_SHA: ${{ github.sha }}
+        run: |
+          docker build -t ${{ secrets.ECR_REPOSITORY }}:$IMAGE_TAG_SHA .
+          docker save ${{ secrets.ECR_REPOSITORY }}:$IMAGE_TAG_SHA | gzip > image.tar.gz
+
+      - name: Subir imagen como artefacto
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-image
+          path: image.tar.gz
+          retention-days: 1
+
+  push:
+    name: Push to Amazon ECR
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Descargar imagen del artefacto
+        uses: actions/download-artifact@v4
+        with:
+          name: docker-image
+
+      - name: Cargar imagen Docker
+        run: docker load < image.tar.gz
 
       - name: Configurar credenciales de AWS Academy
         uses: aws-actions/configure-aws-credentials@v4
@@ -19,35 +46,31 @@ jobs:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
-          aws-region: ${{ secrets.AWS_REGION }} 
+          aws-region: ${{ secrets.AWS_REGION }}
 
       - name: Iniciar sesión en Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Construir, etiquetar y subir imagen Docker
+      - name: Etiquetar y subir imagen a ECR
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG_SHA: ${{ github.sha }}
           IMAGE_TAG_LATEST: latest
           IMAGE_TAG_VERSION: v1.0.${{ github.run_number }}
         run: |
-          # 1. Construir la imagen localmente (Cambiado a secrets)
-          docker build -t $ECR_REGISTRY/${{ secrets.ECR_REPOSITORY }}:$IMAGE_TAG_SHA .
-          
-          # 2. Asignar los 3 tags simultáneos exigidos (Cambiado a secrets)
-          docker tag $ECR_REGISTRY/${{ secrets.ECR_REPOSITORY }}:$IMAGE_TAG_SHA $ECR_REGISTRY/${{ secrets.ECR_REPOSITORY }}:$IMAGE_TAG_LATEST
-          docker tag $ECR_REGISTRY/${{ secrets.ECR_REPOSITORY }}:$IMAGE_TAG_SHA $ECR_REGISTRY/${{ secrets.ECR_REPOSITORY }}:$IMAGE_TAG_VERSION
-          
-          # 3. Subir las imágenes a ECR (Cambiado a secrets)
+          docker tag ${{ secrets.ECR_REPOSITORY }}:$IMAGE_TAG_SHA $ECR_REGISTRY/${{ secrets.ECR_REPOSITORY }}:$IMAGE_TAG_SHA
+          docker tag ${{ secrets.ECR_REPOSITORY }}:$IMAGE_TAG_SHA $ECR_REGISTRY/${{ secrets.ECR_REPOSITORY }}:$IMAGE_TAG_LATEST
+          docker tag ${{ secrets.ECR_REPOSITORY }}:$IMAGE_TAG_SHA $ECR_REGISTRY/${{ secrets.ECR_REPOSITORY }}:$IMAGE_TAG_VERSION
+
           docker push $ECR_REGISTRY/${{ secrets.ECR_REPOSITORY }}:$IMAGE_TAG_SHA
           docker push $ECR_REGISTRY/${{ secrets.ECR_REPOSITORY }}:$IMAGE_TAG_LATEST
           docker push $ECR_REGISTRY/${{ secrets.ECR_REPOSITORY }}:$IMAGE_TAG_VERSION
 
-  deploy-to-eks:
+  deploy:
     name: Deploy to Amazon EKS
     runs-on: ubuntu-latest
-    needs: build-and-push 
+    needs: push
     steps:
       - name: Configurar credenciales de AWS Academy
         uses: aws-actions/configure-aws-credentials@v4
@@ -55,7 +78,7 @@ jobs:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
-          aws-region: ${{ secrets.AWS_REGION }} 
+          aws-region: ${{ secrets.AWS_REGION }}
 
       - name: Actualizar configuración de Kubeconfig
         run: |
@@ -65,12 +88,9 @@ jobs:
         env:
           IMAGE_TAG_SHA: ${{ github.sha }}
         run: |
-          # Obtener dinámicamente la URL base de tu registro ECR
           ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
           ECR_REGISTRY="${ACCOUNT_ID}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com"
-          
-          # Actualizar el deployment en Kubernetes (Cambiado a secrets)
+
           kubectl set image deployment/${{ secrets.DEPLOYMENT_NAME }} ${{ secrets.CONTAINER_NAME }}=$ECR_REGISTRY/${{ secrets.ECR_REPOSITORY }}:$IMAGE_TAG_SHA
-          
-          # Verificar estado (Cambiado a secrets)
+
           kubectl rollout status deployment/${{ secrets.DEPLOYMENT_NAME }}
